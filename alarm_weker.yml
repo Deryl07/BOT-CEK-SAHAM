@@ -3,7 +3,7 @@ name: Weker Bot Saham 🚀
 on:
   schedule:
     # 09:15 UTC = 16:15 WIB (Senin sampai Jumat)
-    - cron: '15 9 * * 1-5'
+    - cron: '0 * * * *'
   workflow_dispatch: # Biar bisa dipencet manual kalau lagi pengen
 
 jobs:
