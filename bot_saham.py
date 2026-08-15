@@ -3,7 +3,8 @@ import pandas as pd
 import aiohttp
 import asyncio
 import datetime
-import os 
+import os
+import holidays
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
@@ -18,11 +19,11 @@ def hitung_atr(df, periode=14):
 
 async def kirim_notifikasi(session, pesan):
     data = {"content": pesan}
-    async with session.post(DISCORD_WEBHOOK_URL, json=data) as response:
+    async with session.post(WEBHOOK_URL, json=data) as response:
         if response.status not in (200, 204):
             print(f"Gagal mengirim pesan, status code: {response.status}")
 
-async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
+async def ultimate_bot_discord(ticker, session, tanggal_sekarang, waktu_ui):
     saham_objek = yf.Ticker(f"{ticker}.JK")
     df = saham_objek.history(period="1y")
 
@@ -68,14 +69,14 @@ async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
 
             pesan_beli = (
                 f"👑 **ULTIMATE BUY SIGNAL: {ticker}** 👑\n"
-                f"🕒 *Ditemukan Pukul: {jam_wib}*\n"
+                f"🕒 *Ditemukan Pada: {waktu_ui}*\n"
                 f"Harga Masuk: **Rp {hari_ini['Close']:.0f}**\n\n"
                 f"✅ Momentum & Volume Terkonfirmasi \n"
                 f"🚨 *JUAL RUGI (Cut Loss) kalau turun ke:* Rp {stop_loss:.0f}\n"
                 f"🎯 *BUNGKUS CUAN (Take Profit) kalau naik ke:* Rp {target_profit:.0f}"
             )
             await kirim_notifikasi(session, pesan_beli)
-            print(f"[{ticker}] Sinyal Beli dikirim ke Discord! ({jam_wib})")
+            print(f"[{ticker}] Sinyal Beli dikirim ke Discord! ({waktu_ui})")
 
             catatan_notif[f"{ticker}_BELI"] = tanggal_sekarang
             sinyal_terkirim = True
@@ -97,19 +98,19 @@ async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
             alasan = "\n".join(pesan_jual)
             pesan_peringatan = (
                 f"🔴 **SELL ALERT / PERINGATAN: {ticker}** 🔴\n"
-                f"🕒 *Ditemukan Pukul: {jam_wib}*\n"
+                f"🕒 *Ditemukan Pada: {waktu_ui}*\n"
                 f"Harga Sekarang: Rp {hari_ini['Close']:.0f}\n\n"
                 f"{alasan}\n\n"
                 f"*(Amankan uangmu, siap-siap pencet tombol JUAL!)*"
             )
             await kirim_notifikasi(session, pesan_peringatan)
-            print(f"[{ticker}] Peringatan Jual dikirim ke Discord! ({jam_wib})")
+            print(f"[{ticker}] Peringatan Jual dikirim ke Discord! ({waktu_ui})")
 
             catatan_notif[f"{ticker}_JUAL"] = tanggal_sekarang
             sinyal_terkirim = True
 
     if not sinyal_terkirim:
-        print(f"[{ticker}] Belum ada sinyal pergerakan baru. ({jam_wib})")
+        print(f"[{ticker}] Belum ada sinyal pergerakan baru. ({waktu_ui})")
 
 async def main():
     daftar_saham = ["BULL", "CBRE", "ENRG", "FORU", "KDTN", "TLKM", "MEDC"]
@@ -118,14 +119,66 @@ async def main():
 
     async with aiohttp.ClientSession(trust_env=True) as session:
         waktu_sekarang = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7)))
-        jam_wib = waktu_sekarang.strftime("%H:%M:%S WIB")
+        nama_hari = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+        hari_ini_str = nama_hari[waktu_sekarang.weekday()]
+        waktu_ui = f"{hari_ini_str}, {waktu_sekarang.strftime('%d-%m-%Y %H:%M:%S')} WIB"
         tanggal_sekarang = waktu_sekarang.strftime("%Y-%m-%d")
         
-        print(f"⏰ [{jam_wib}] Mulai scan...")
-        
+        jam = waktu_sekarang.hour
+        hari_int = waktu_sekarang.weekday()
+
+        print(f"⏰ [{waktu_ui}] Mulai scan...")
+
+        libur_indo = holidays.country_holidays('ID')
+        if tanggal_sekarang in libur_indo:
+            nama_libur = libur_indo.get(tanggal_sekarang)
+            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nHari ini tanggal merah lho ({nama_libur}). Bursa tutup, bot mau rebahan dulu!"
+            await kirim_notifikasi(session, pesan_libur)
+            print(f"Pasar tutup (Tanggal Merah: {nama_libur}). Bot mati.")
+            return
+
+        if hari_int >= 5: 
+            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nPasar saham sedang libur akhir pekan. Bot istirahat dulu ya!"
+            await kirim_notifikasi(session, pesan_libur)
+            print("Pasar tutup (Weekend). Bot mati.")
+            return
+
+        if jam < 9 or jam >= 16: 
+            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nSekarang berada di luar jam operasional bursa. Bot istirahat dulu ya!"
+            await kirim_notifikasi(session, pesan_libur)
+            print("Pasar tutup (Luar jam bursa). Bot mati.")
+            return
+
+        pesan_rekap = f"📊 **REKAP PERGERAKAN SAHAM (1 JAM TERAKHIR)**\n🗓️ {waktu_ui}\n\n"
         for saham in daftar_saham:
             try:
-                await ultimate_bot_discord(saham, session, tanggal_sekarang, jam_wib)
+                ticker = yf.Ticker(f"{saham}.JK")
+                df_1h = ticker.history(period="5d", interval="1h")
+                if len(df_1h) >= 2:
+                    harga_skrg = df_1h['Close'].iloc[-1]
+                    harga_sblm = df_1h['Close'].iloc[-2]
+                    selisih = harga_skrg - harga_sblm
+                    persen = (selisih / harga_sblm) * 100 if harga_sblm != 0 else 0
+                    
+                    if selisih > 0:
+                        ikon = "📈 NAIK"
+                    elif selisih < 0:
+                        ikon = "📉 TURUN"
+                    else:
+                        ikon = "➖ STAGNAN"
+                        
+                    pesan_rekap += f"• **{saham}**: Rp {harga_skrg:.0f} | {ikon} {persen:.2f}%\n"
+                else:
+                    pesan_rekap += f"• **{saham}**: Data belum masuk\n"
+            except Exception as e:
+                pesan_rekap += f"• **{saham}**: Error ambil data\n"
+            await asyncio.sleep(1)
+        
+        await kirim_notifikasi(session, pesan_rekap)
+
+        for saham in daftar_saham:
+            try:
+                await ultimate_bot_discord(saham, session, tanggal_sekarang, waktu_ui)
                 await asyncio.sleep(3)
             except Exception as e:
                 print(f"Error {saham}: {e}")
