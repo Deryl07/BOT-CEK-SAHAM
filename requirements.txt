@@ -2,3 +2,4 @@ yfinance
 pandas
 aiohttp
 holidays
+matplotlib
