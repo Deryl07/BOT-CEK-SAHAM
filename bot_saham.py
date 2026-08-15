@@ -132,19 +132,19 @@ async def main():
         libur_indo = holidays.country_holidays('ID')
         if tanggal_sekarang in libur_indo:
             nama_libur = libur_indo.get(tanggal_sekarang)
-            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nHari ini tanggal merah lho ({nama_libur}). Bursa tutup, bot mau rebahan dulu!"
+            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nHari ini tanggal merah ({nama_libur})."
             await kirim_notifikasi(session, pesan_libur)
             print(f"Pasar tutup (Tanggal Merah: {nama_libur}). Bot mati.")
             return
 
         if hari_int >= 5: 
-            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nPasar saham sedang libur akhir pekan. Bot istirahat dulu ya!"
+            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nPasar saham sedang libur akhir pekan."
             await kirim_notifikasi(session, pesan_libur)
             print("Pasar tutup (Weekend). Bot mati.")
             return
 
         if jam < 9 or jam >= 16: 
-            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nSekarang berada di luar jam operasional bursa. Bot istirahat dulu ya!"
+            pesan_libur = f"ℹ️ **INFO PASAR SAHAM TUTUP**\n🗓️ {waktu_ui}\n\nSekarang berada di luar jam operasional bursa."
             await kirim_notifikasi(session, pesan_libur)
             print("Pasar tutup (Luar jam bursa). Bot mati.")
             return
