@@ -3,13 +3,10 @@ import pandas as pd
 import aiohttp
 import asyncio
 import datetime
+import os 
 
-# ==========================================
-# KONFIGURASI DISCORD
-# ==========================================
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1536496401834442882/UQtWSKnAxbVxkfz1LxasABQ0qeVWD0uEkAjkjtYEagQk0bs2pY8Ch2XT-NzlkNrdZs70"
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
-# --- BUKU CATATAN BOT (MEMORI ANTI-SPAM) ---
 catatan_notif = {}
 
 def hitung_atr(df, periode=14):
@@ -35,7 +32,6 @@ async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
     if df.empty or len(df) < 200:
         return
 
-    # --- INDIKATOR TEKNIKAL ---
     df['SMA_50'] = df['Close'].rolling(window=50).mean()
     df['SMA_200'] = df['Close'].rolling(window=200).mean()
 
@@ -57,18 +53,14 @@ async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
     kemarin = df.iloc[-2]
     hari_ini = df.iloc[-1]
 
-    sinyal_terkirim = False # Penanda apakah hari ini bot udah nge-chat atau belum
+    sinyal_terkirim = False 
 
-    # ==========================================
-    # 🟢 LOGIKA SINYAL BELI
-    # ==========================================
     beli_tren = hari_ini['Close'] > hari_ini['SMA_200'] and hari_ini['Close'] > hari_ini['SMA_50']
     beli_macd = kemarin['MACD'] <= kemarin['Signal'] and hari_ini['MACD'] > hari_ini['Signal']
     beli_volume = hari_ini['Volume'] >= (1.5 * hari_ini['Rata_Volume_20'])
     beli_rsi = hari_ini['RSI'] < 70
 
     if beli_tren and beli_macd and beli_volume and beli_rsi:
-        # Cek memori: Apakah hari ini sudah pernah dikirimi sinyal BELI untuk saham ini?
         if catatan_notif.get(f"{ticker}_BELI") != tanggal_sekarang:
             stop_loss = hari_ini['Close'] - (hari_ini['ATR'] * 2)
             risiko = hari_ini['Close'] - stop_loss
@@ -85,13 +77,9 @@ async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
             await kirim_notifikasi(session, pesan_beli)
             print(f"[{ticker}] Sinyal Beli dikirim ke Discord! ({jam_wib})")
 
-            # Catat di memori supaya jam berikutnya tidak dikirim lagi
             catatan_notif[f"{ticker}_BELI"] = tanggal_sekarang
             sinyal_terkirim = True
 
-    # ==========================================
-    # 🔴 LOGIKA SINYAL JUAL / WASPADA
-    # ==========================================
     jual_macd_turun = kemarin['MACD'] >= kemarin['Signal'] and hari_ini['MACD'] < hari_ini['Signal']
     jual_rsi_mahal = kemarin['RSI'] <= 70 and hari_ini['RSI'] > 70
     jual_jebol_sma50 = kemarin['Close'] >= kemarin['SMA_50'] and hari_ini['Close'] < hari_ini['SMA_50']
@@ -105,7 +93,6 @@ async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
         pesan_jual.append("⚠️ **WASPADA:** RSI kemahalan (>70). Siap-siap orang pada jualan.")
 
     if pesan_jual:
-        # Cek memori: Apakah hari ini sudah pernah dikirimi sinyal JUAL untuk saham ini?
         if catatan_notif.get(f"{ticker}_JUAL") != tanggal_sekarang:
             alasan = "\n".join(pesan_jual)
             pesan_peringatan = (
@@ -118,17 +105,12 @@ async def ultimate_bot_discord(ticker, session, tanggal_sekarang, jam_wib):
             await kirim_notifikasi(session, pesan_peringatan)
             print(f"[{ticker}] Peringatan Jual dikirim ke Discord! ({jam_wib})")
 
-            # Catat di memori
             catatan_notif[f"{ticker}_JUAL"] = tanggal_sekarang
             sinyal_terkirim = True
 
-    # Jika tidak ada pergerakan, atau sudah dikabari hari ini
     if not sinyal_terkirim:
         print(f"[{ticker}] Belum ada sinyal pergerakan baru. ({jam_wib})")
 
-# ==========================================
-# PUSAT MESIN CEPAT (CEK TIAP 1 JAM)
-# ==========================================
 async def main():
     daftar_saham = ["BULL", "CBRE", "ENRG", "FORU", "KDTN", "TLKM", "MEDC"]
 
@@ -144,7 +126,7 @@ async def main():
         for saham in daftar_saham:
             try:
                 await ultimate_bot_discord(saham, session, tanggal_sekarang, jam_wib)
-                await asyncio.sleep(3) # Jeda aman
+                await asyncio.sleep(3)
             except Exception as e:
                 print(f"Error {saham}: {e}")
                 
