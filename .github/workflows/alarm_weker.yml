@@ -17,10 +17,10 @@ jobs:
       with:
         python-version: '3.10'
         
-    - name: Install Alat Tempur
-      run: pip install yfinance pandas aiohttp
+    - name: Install pip
+      run: pip install yfinance pandas aiohttp holidays
       
-    - name: JALANKAN BOT
+    - name: JALANKAN BOT SAHAM
       env:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       run: python bot_saham.py
