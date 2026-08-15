@@ -135,31 +135,20 @@ async def main():
     print("🚀 BOT NYALA!")
 
     async with aiohttp.ClientSession(trust_env=True) as session:
-        while True:
-            waktu_sekarang = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7)))
-            jam_wib = waktu_sekarang.strftime("%H:%M:%S WIB")
-            tanggal_sekarang = waktu_sekarang.strftime("%Y-%m-%d")
-
-            print(f"\n⏰ [{jam_wib}] Mulai scan pergerakan saham...")
-
-            # --- ILMU KEBAL BANTING (TRY-EXCEPT) ---
-            kena_blokir = False
-            for saham in daftar_saham:
-                try:
-                    await ultimate_bot_discord(saham, session, tanggal_sekarang, jam_wib)
-                    await asyncio.sleep(3) # Jeda 3 detik
-                except Exception as e:
-                    print(f"⚠️ Gagal mengecek {saham}. Pesan Error: {type(e).__name__}")
-                    print("🛑 Satpam Yahoo masih galak (IP diblokir sementara)!")
-                    kena_blokir = True
-                    break # Langsung berhenti ngecek saham lain, mending tidur
-
-            if kena_blokir:
-                print(f"🔄 [{jam_wib}] Scan gagal diselesaikan.")
-            else:
-                print(f"✅ [{jam_wib}] Scan sukses! ")
-
-            await asyncio.sleep(60)
+        waktu_sekarang = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=7)))
+        jam_wib = waktu_sekarang.strftime("%H:%M:%S WIB")
+        tanggal_sekarang = waktu_sekarang.strftime("%Y-%m-%d")
+        
+        print(f"⏰ [{jam_wib}] Mulai scan...")
+        
+        for saham in daftar_saham:
+            try:
+                await ultimate_bot_discord(saham, session, tanggal_sekarang, jam_wib)
+                await asyncio.sleep(3) # Jeda aman
+            except Exception as e:
+                print(f"Error {saham}: {e}")
+                
+        print("✅ Scan selesai, bot berhenti.")
 
 if __name__ == "__main__":
     asyncio.run(main())
