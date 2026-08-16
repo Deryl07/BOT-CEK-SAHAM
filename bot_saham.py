@@ -264,7 +264,7 @@ async def rekap_mingguan(session, daftar_saham, waktu_ui):
         except Exception:
             pass
             
-    pesan_rapor += "\n📁 *Data mingguan sedang disimpan ke Excel/CSV. Selamat berakhir pekan, Bos!*"
+    pesan_rapor += "\n📁 *Data mingguan sedang disimpan ke Excel/CSV!*"
     
     if data_csv:
         df_csv = pd.DataFrame(data_csv)
