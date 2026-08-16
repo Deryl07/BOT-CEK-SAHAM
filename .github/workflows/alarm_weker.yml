@@ -1,8 +1,8 @@
-name: Weker Bot Saham 🚀
+name: BOT SAHAM 🤖
 
 on:
   schedule:
-  - cron: '7 2-9 * * 1-5'
+  - cron: '0 2-9 * * 1-5'
     
   workflow_dispatch:
 
