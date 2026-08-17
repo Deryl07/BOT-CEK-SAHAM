@@ -285,9 +285,14 @@ async def main():
         
         jam = waktu_sekarang.hour
         hari_int = waktu_sekarang.weekday()
-
+        
         libur_indo = holidays.country_holidays('ID')
         if tanggal_sekarang in libur_indo:
+            # Kirim notifikasi HANYA sekali pas weker jam 09:00 bunyi
+            if jam == 9 and catatan_notif.get("LIBUR") != tanggal_sekarang:
+                pesan_libur = f"{PING_USER}\n🇮🇩 **PENGUMUMAN LIBUR!** 🇮🇩\nHari ini tanggal merah/libur nasional. Bursa saham tutup! 🏁"
+                await kirim_notifikasi_gambar(session, pesan_libur)
+                catatan_notif["LIBUR"] = tanggal_sekarang
             return
 
         if hari_int >= 5:
