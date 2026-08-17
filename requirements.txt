@@ -1,5 +1,5 @@
 yfinance
 pandas
-aiohttp
+numpy
 holidays
-matplotlib
+aiohttp
