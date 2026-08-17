@@ -19,7 +19,7 @@ jobs:
         python-version: '3.10'
         
     - name: Install pip
-      run: pip install yfinance pandas aiohttp holidays matplotlib
+      run: pip install yfinance pandas numpy holidays aiohttp
       
     - name: JALANKAN BOT SAHAM
       env:
