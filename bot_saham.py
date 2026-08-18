@@ -11,8 +11,9 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
 def analisis_saham_pro(ticker_symbol):
     ticker = f"{ticker_symbol}.JK"
-    data = yf.download(ticker, period="3mo", interval="1d", progress=False)
-    
+    saham_yf = yf.Ticker(ticker)
+    data = saham_yf.history(period="3mo", interval="1d")
+
     if data.empty or len(data) < 21:
         return None 
         
