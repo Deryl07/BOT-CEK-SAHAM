@@ -1,5 +1,4 @@
-yfinance
-pandas
-numpy
-holidays
+yfinance 
+pandas 
+holidays 
 aiohttp
