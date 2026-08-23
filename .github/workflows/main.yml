@@ -1,27 +1,33 @@
-name: BOT SAHAM 🤖
+name: Bot Saham
 
 on:
   schedule:
-  - cron: '0 2-9 * * 1-5'
-    
+    - cron: '0 2-9 * * 1-5'
   workflow_dispatch:
 
+concurrency:
+  group: operasi-bot
+  cancel-in-progress: true
+
 jobs:
-  run-bot:
+  eksekusi-bot:
     runs-on: ubuntu-latest
+
     steps:
-    - name: Tarik Kode
+    - name: Mengambil Repositori
       uses: actions/checkout@v3
-      
-    - name: Siapin Python
+
+    - name: Menyiapkan Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
-        
-    - name: Install pip
-      run: ​pip install yfinance pandas holidays aiohttp
-      
-    - name: JALANKAN BOT SAHAM
+
+    - name: Menginstal Pip
+      run: |
+        python -m pip install --upgrade pip
+        pip install yfinance pandas holidays aiohttp
+
+    - name: Menjalankan Skrip Sistem
       env:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       run: python bot_saham.py
