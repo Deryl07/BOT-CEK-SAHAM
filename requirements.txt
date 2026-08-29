@@ -1,4 +1,6 @@
-yfinance 
-pandas 
-holidays 
-aiohttp
+​yfinance
+​pandas
+​holidays
+​flask
+​requests
+​gunicorn
