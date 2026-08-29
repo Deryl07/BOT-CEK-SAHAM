@@ -2,10 +2,14 @@ import yfinance as yf
 import pandas as pd
 import datetime
 import holidays
-import asyncio
-import aiohttp
 import os
+import requests
+import warnings
+from flask import Flask, jsonify
 
+warnings.filterwarnings('ignore')
+
+app = Flask(__name__)
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
 
 def ambil_berita(ticker_symbol):
@@ -13,18 +17,33 @@ def ambil_berita(ticker_symbol):
         saham = yf.Ticker(f"{ticker_symbol}.JK")
         berita = saham.news
         if berita and len(berita) > 0:
-            return berita[0].get('title', 'Tidak ada tajuk berita spesifik.')
+            return berita[0].get('title', 'Tidak ada rilis berita terbaru pada interval ini.')
     except Exception:
         pass
-    return "Tidak ada pembaruan berita."
+    return "Data berita tidak dapat ditarik dari peladen pusat."
 
-def analisis_akurat(ticker_symbol):
+def hitung_seasonality(ticker_symbol, bulan_sekarang):
+    try:
+        saham = yf.Ticker(f"{ticker_symbol}.JK")
+        data = saham.history(period="5y", interval="1mo")
+        if data.empty:
+            return 50.0
+        data_bulan = data[data.index.month == bulan_sekarang]
+        if data_bulan.empty:
+            return 50.0
+        positif = (data_bulan['Close'] > data_bulan['Open']).sum()
+        total = len(data_bulan)
+        return (positif / total) * 100
+    except Exception:
+        return 50.0
+
+def analisis_mendalam(ticker_symbol, bulan_sekarang):
     try:
         ticker = f"{ticker_symbol}.JK"
         saham_yf = yf.Ticker(ticker)
-        data = saham_yf.history(period="5d", interval="15m")
+        data = saham_yf.history(period="5d", interval="5m")
         
-        if data.empty or len(data) < 21:
+        if data.empty or len(data) < 35:
             return None
             
         data['Typical_Price'] = (data['High'] + data['Low'] + data['Close']) / 3
@@ -37,36 +56,44 @@ def analisis_akurat(ticker_symbol):
         rs = gain / loss
         data['RSI_14'] = 100 - (100 / (1 + rs))
         
+        exp1 = data['Close'].ewm(span=12, adjust=False).mean()
+        exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+        data['MACD'] = exp1 - exp2
+        data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
+        
+        support = data['Low'].rolling(window=20).min().iloc[-1]
+        resistance = data['High'].rolling(window=20).max().iloc[-1]
+        
         now = data.iloc[-1]
         prev = data.iloc[-2]
-        
         rata_volume = data['Volume'].rolling(window=20).mean().iloc[-1]
-        ledakan_volume = now['Volume'] > (rata_volume * 1.5)
+        
+        validasi_volume_akut = now['Volume'] > (rata_volume * 2.0)
+        filter_palsu = now['Close'] >= prev['Close']
         
         batas_bawah = now['VWMA_20'] * 0.99
         batas_atas = now['VWMA_20'] * 1.01
         
         fase_akumulasi = (now['Close'] >= batas_bawah) and (now['Close'] <= batas_atas)
-        filter_palsu = now['Close'] >= prev['Close']
-        potensi_awal = now['RSI_14'] < 60
+        tren_positif = (now['MACD'] > now['Signal_Line']) and (prev['MACD'] <= prev['Signal_Line'])
+        momentum_awal = 40 < now['RSI_14'] < 65
+        distribusi_terdeteksi = now['Close'] < batas_bawah and now['MACD'] < now['Signal_Line']
         
-        status = "Pantau"
+        seasonality = hitung_seasonality(ticker_symbol, bulan_sekarang)
+        musiman_ok = seasonality >= 50.0
+        
+        status = "Dalam Pemantauan"
         skor = "C"
         
-        # Deteksi Beli (Fase Awal Akumulasi Institusi)
-        if fase_akumulasi and ledakan_volume and potensi_awal and filter_palsu:
-            status = "Beli (Fase Awal Uptrend)"
+        if fase_akumulasi and validasi_volume_akut and tren_positif and momentum_awal and filter_palsu and musiman_ok:
+            status = "INSTRUKSI BELI (Awal Kenaikan Terkonfirmasi)"
             skor = "A"
-            
-        # Deteksi Jual (Fase Distribusi Institusi / Buang Barang)
-        elif now['Close'] < batas_bawah and ledakan_volume and not filter_palsu:
-            status = "JUAL SEKARANG (Potensi Turun Tajam)"
+        elif distribusi_terdeteksi and validasi_volume_akut:
+            status = "INSTRUKSI JUAL (Penurunan Terkonfirmasi)"
             skor = "F"
-            
-        # Evaluasi Tren Lanjutan untuk Raport
-        elif now['Close'] > now['VWMA_20'] and now['RSI_14'] > 50:
+        elif now['Close'] > now['VWMA_20'] and now['MACD'] > now['Signal_Line']:
             skor = "B"
-        elif now['Close'] < now['VWMA_20'] and now['RSI_14'] < 40:
+        elif now['Close'] < now['VWMA_20'] and now['MACD'] < now['Signal_Line']:
             skor = "F"
             
         return {
@@ -74,99 +101,110 @@ def analisis_akurat(ticker_symbol):
             "status": status,
             "skor": skor,
             "rsi": now['RSI_14'],
-            "vwma": now['VWMA_20']
+            "vwma": now['VWMA_20'],
+            "macd_positif": now['MACD'] > now['Signal_Line'],
+            "support": support,
+            "resistance": resistance,
+            "seasonality": seasonality
         }
     except Exception:
         return None
 
-async def kirim_pesan(session, pesan):
+def kirim_pesan(pesan):
     if not WEBHOOK_URL:
         return
     try:
-        async with session.post(WEBHOOK_URL, json={"content": pesan}) as resp:
-            pass
+        requests.post(WEBHOOK_URL, json={"content": pesan}, timeout=10)
     except Exception:
         pass
 
-async def main():
+@app.route('/')
+def index():
+    return "Peladen Analisis Institusional Beroperasi Secara Formal."
+
+@app.route('/eksekusi')
+def eksekusi():
     tz_wib = datetime.timezone(datetime.timedelta(hours=7))
     waktu = datetime.datetime.now(tz_wib)
     
+    hari_dict = {0: "Senin", 1: "Selasa", 2: "Rabu", 3: "Kamis", 4: "Jumat", 5: "Sabtu", 6: "Minggu"}
+    bulan_dict = {1: "Januari", 2: "Februari", 3: "Maret", 4: "April", 5: "Mei", 6: "Juni", 7: "Juli", 8: "Agustus", 9: "September", 10: "Oktober", 11: "November", 12: "Desember"}
+    
+    nama_hari = hari_dict[waktu.weekday()]
+    nama_bulan = bulan_dict[waktu.month]
+    
     str_waktu = waktu.strftime("%H:%M:%S")
-    str_tanggal = waktu.strftime("%d-%m-%Y")
-    stempel_waktu = f"Jam: {str_waktu} WIB, Tanggal: {str_tanggal}"
+    stempel_waktu = f"Jam {waktu.hour:02d}, Menit {waktu.minute:02d}, Detik {waktu.second:02d}, Hari {nama_hari}, Tanggal {waktu.day:02d} Bulan {nama_bulan} Tahun {waktu.year}"
     
     hari = waktu.weekday()
     jam = waktu.hour
+    menit = waktu.minute
     
     libur = holidays.country_holidays('ID')
     
-    async with aiohttp.ClientSession() as session:
-        # Aturan 7: Pengecekan Hari Libur atau Akhir Pekan
-        if waktu.date() in libur or hari > 4:
-            if jam == 9:
-                await kirim_pesan(session, f"@everyone\nInformasi Sistem: Pasar saham sedang libur atau akhir pekan. ({stempel_waktu})")
-            return
+    if waktu.date() in libur or hari > 4:
+        if jam == 9 and menit < 5:
+            kirim_pesan(f"@everyone\n**Pemberitahuan Sistem:** Pasar saham sedang libur atau akhir pekan. Transaksi ditutup.\nData ditarik pada: {stempel_waktu}")
+        return jsonify({"status": "Libur", "waktu": str_waktu})
 
-        # Aturan 8: Pengecekan Jam Operasional Pasar
-        if jam < 9 or jam >= 16:
-            if jam == 16:
-                pass # Lanjutkan eksekusi untuk mengirimkan laporan penutupan pasar
-            else:
-                return
+    if jam < 9 or jam >= 16:
+        if jam == 16 and menit < 5:
+            pass 
+        else:
+            return jsonify({"status": "Luar Operasional", "waktu": str_waktu})
 
-        # Aturan 10: Membaca Watchlist
-        try:
-            with open("watchlist.txt", "r") as file:
-                daftar_saham = [line.strip().upper() for line in file if line.strip()]
-        except FileNotFoundError:
-            daftar_saham = ["BULL", "TLKM", "BBCA", "GOTO", "MEDC"]
+    try:
+        with open("watchlist.txt", "r") as file:
+            daftar_saham = [line.strip().upper() for line in file if line.strip()]
+    except FileNotFoundError:
+        daftar_saham = ["BULL", "TLKM", "BBCA", "GOTO", "MEDC"]
 
-        # Aturan 6: Penanda Waktu Presisi
-        pesan_utama = f"@everyone\n**Laporan Eksekusi Sistem**\nPengambilan data indikator dan berita pada {stempel_waktu}\n\n"
+    pesan_utama = f"@everyone\n**Laporan Eksekusi Algoritma Institusional**\nData ditarik pada: {stempel_waktu}\n\n"
+    
+    if jam == 9 and menit < 5:
+        pesan_utama = f"@everyone\n**Pemberitahuan Sistem:** Sesi perdagangan pasar saham telah dibuka.\nData ditarik pada: {stempel_waktu}\n\n"
         
-        if jam == 9:
-            pesan_utama = f"@everyone\n**Pemberitahuan: Pasar Saham Telah Dibuka**\nPengambilan data awal pada {stempel_waktu}\n\n"
-            
-        raport_teks = ""
-        evaluasi_watchlist = "\n**Saran Evaluasi Watchlist:**\n"
-        ada_evaluasi = False
+    raport_teks = ""
+    evaluasi_watchlist = "\n**Saran Modifikasi Daftar Pantauan (Watchlist):**\n"
+    ada_evaluasi = False
+    
+    for saham in daftar_saham:
+        hasil = analisis_mendalam(saham, waktu.month)
+        berita = ambil_berita(saham)
         
-        for saham in daftar_saham:
-            hasil = analisis_akurat(saham)
-            berita = ambil_berita(saham)
+        if hasil:
+            pesan_utama += f"**Emiten {saham}** | Harga Aktual: Rp {hasil['harga']:,.0f} | Status: {hasil['status']}\n"
+            pesan_utama += f"Rencana Perdagangan: Beli di area Rp {hasil['support']:,.0f} | Jual di area Rp {hasil['resistance']:,.0f}\n"
+            pesan_utama += f"Analisis Musiman Bulan {nama_bulan}: Probabilitas keberhasilan {hasil['seasonality']:.1f}%\n"
+            pesan_utama += f"Tajuk Berita Resmi: {berita}\n"
             
-            # Aturan 11: Harga Live untuk Semua Saham
-            if hasil:
-                pesan_utama += f"**{saham}** | Harga: Rp {hasil['harga']:,.0f} | Status: {hasil['status']}\n"
-                
-                # Aturan 3: Berita Saham
-                pesan_utama += f"Berita Terkini: {berita}\n"
-                
-                if "Beli" in hasil['status']:
-                    pesan_utama += f"Instruksi: Sinyal divalidasi. Harga mendekati batas institusi (Rp {hasil['vwma']:,.0f}) dengan lonjakan volume beli.\n"
-                elif "JUAL" in hasil['status']:
-                    pesan_utama += f"Instruksi: Peringatan Dini. Institusi sedang melakukan distribusi. Harga menembus batas bawah (Rp {hasil['vwma']:,.0f}) dengan volume besar.\n"
-                
-                raport_teks += f"- {saham}: Skor {hasil['skor']} (RSI: {hasil['rsi']:.1f})\n"
-                
-                # Aturan 4: Raport dan Saran Evaluasi Watchlist
-                if hasil['skor'] == "F":
-                    evaluasi_watchlist += f"- Pertimbangkan untuk mengeluarkan {saham} (Tren distribusi, momentum patah).\n"
-                    ada_evaluasi = True
-            else:
-                pesan_utama += f"**{saham}** | Gagal mengambil data pasar.\n"
-            pesan_utama += "------------------------\n"
+            raport_teks += f"- {saham}: Peringkat {hasil['skor']} (Probabilitas Musiman: {hasil['seasonality']:.1f}%)\n"
+            
+            if hasil['skor'] == "F" or hasil['seasonality'] < 50.0:
+                evaluasi_watchlist += f"- Keluarkan {saham} dari pantauan. (Alasan: Skor F atau Musiman di bawah standar 50%).\n"
+                ada_evaluasi = True
+        else:
+            pesan_utama += f"**Emiten {saham}** | Terjadi kegagalan penarikan data metrik.\n"
+        pesan_utama += "------------------------\n"
 
-        # Aturan 4 dan 8: Laporan Teks Penutupan Pasar
-        if jam == 16:
-            pesan_utama = f"@everyone\n**Pemberitahuan: Pasar Saham Telah Ditutup**\nLaporan akhir ditarik pada {stempel_waktu}\n\n**Raport Saham Hari Ini:**\n{raport_teks}"
-            if ada_evaluasi:
-                pesan_utama += evaluasi_watchlist
-            else:
-                pesan_utama += "\n**Saran Evaluasi Watchlist:**\n- Seluruh saham terpantau dalam kondisi teknikal yang stabil. Tidak ada saran pengeluaran."
+    if jam == 16 and menit < 5:
+        pesan_utama = f"@everyone\n**Pemberitahuan Sistem:** Sesi perdagangan pasar saham telah ditutup.\nData ditarik pada: {stempel_waktu}\n\n**Raport Saham Harian:**\n{raport_teks}"
+        if ada_evaluasi:
+            pesan_utama += evaluasi_watchlist
+        else:
+            pesan_utama += "\n**Saran Modifikasi Daftar Pantauan (Watchlist):**\n- Pertahankan seluruh saham, kondisi fundamental dan teknikal stabil."
+            
+        if hari == 4:
+            pesan_utama += "\n**Rekomendasi Kandidat Watchlist Baru Untuk Minggu Depan:**\n"
+            kandidat_tambahan = ["BBRI", "BMRI", "AMMN", "ASII", "BRPT", "BREN"]
+            for kandidat in kandidat_tambahan:
+                if kandidat not in daftar_saham:
+                    hasil_kandidat = analisis_mendalam(kandidat, waktu.month)
+                    if hasil_kandidat and hasil_kandidat['seasonality'] >= 50.0 and hasil_kandidat['skor'] in ["A", "B"]:
+                        pesan_utama += f"- Masukkan {kandidat} (Skor {hasil_kandidat['skor']}, Musiman {hasil_kandidat['seasonality']:.1f}%).\n"
 
-        await kirim_pesan(session, pesan_utama)
+    kirim_pesan(pesan_utama)
+    return jsonify({"status": "Analisis Selesai", "waktu": str_waktu})
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
