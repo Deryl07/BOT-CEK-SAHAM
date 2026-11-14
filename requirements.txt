@@ -1,6 +1,10 @@
-​yfinance
-​pandas
-​holidays
-​flask
-​requests
-​gunicorn
+flask==3.0.3
+gunicorn==22.0.0
+requests==2.32.3
+curl_cffi==0.7.3
+yfinance==0.2.54
+pandas==2.2.3
+numpy==1.26.4
+PyNaCl==1.5.0
+feedparser==6.0.11
+pytz==2024.2
